@@ -105,11 +105,17 @@ Endi botga ovozli xabar yuboring — eslatma saqlanishi kerak.
 ### Testlar
 
 ```bash
-npm test         # 40 ta integratsion tekshiruv (auth, API, kalendar, rejalashtiruvchi)
+npm test         # 65 ta integratsion tekshiruv
 npm run typecheck
 ```
 
-Testlar tarmoqqa chiqmaydi — vaqtinchalik SQLite bazasi va Fastify `inject` ishlatiladi.
+Qamrab olingan: initData imzosi, REST API, kalendarga takrorlanishlarni yozish,
+bajarilganlik belgisi, bot tugmalari (bajarildi / keyinroq / o'chirish), eslatma
+yetkazish sikli (takroriy yuborilmaslik, bloklangan foydalanuvchi, vaqtinchalik
+xatoda qayta urinish) va vaqt hisoblari.
+
+Testlar tarmoqqa chiqmaydi — vaqtinchalik SQLite bazasi, Fastify `inject` va
+ushlab qolingan Telegram API chaqiruvlari ishlatiladi.
 
 ---
 
@@ -146,16 +152,17 @@ Ikkala platformada ham bot **webhook** rejimiga o'tadi (`PUBLIC_URL` berilgani u
 
 ## 4. Mini App'ni botga ulash
 
-Deploy tugagach, [@BotFather](https://t.me/BotFather) da:
+**Qo'lda hech narsa qilish shart emas.** `PUBLIC_URL` sozlangan bo'lsa, bot ishga tushganda buyruqlar ro'yxatini va «🗓 Kalendar» menyu tugmasini Telegramda o'zi ro'yxatdan o'tkazadi (`registerBotMetadata()`, [src/bot/index.ts](src/bot/index.ts)).
+
+Loglarda shu satrni ko'rsangiz — hammasi joyida:
 
 ```
-/setmenubutton
-→ botingizni tanlang
-→ URL: https://sizning-manzilingiz/
-→ Tugma nomi: 📅 Kalendar
+INFO  [bot] menyu tugmasi Mini App'ga ulandi: https://sizning-manzilingiz/
 ```
 
-Endi bot chatida pastda «📅 Kalendar» tugmasi paydo bo'ladi.
+Tugma paydo bo'lmasa, Telegram ilovasini yopib qayta oching (menyu keshlanadi). Zarur bo'lsa qo'lda ham qo'yish mumkin: [@BotFather](https://t.me/BotFather) → `/setmenubutton` → botingiz → URL → tugma nomi.
+
+Eslatma xabaridagi «🗓 Kalendarda ko'rish» va «✏️ O'zgartirish» tugmalari Mini App'ni `?taskId=N` bilan ochadi — kalendar o'sha vazifaning kuniga sakrab, tahrirlash oynasini darhol ko'rsatadi.
 
 ---
 

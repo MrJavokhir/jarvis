@@ -313,6 +313,209 @@ section("Vaqt hisoblari");
   check("takrorlanmaydigan uchun null", timeLib.nextOccurrence(base, "none", tz, base) === null);
 }
 
+// ── Bot tugmalari (callback) ────────────────────────────
+section("Bot tugmalari");
+
+const { Context } = await import("grammy");
+const { bot } = await load("bot/index.js");
+const { handleCallback } = await load("bot/handlers/callbacks.js");
+
+const apiCalls = [];
+let failWith = null;
+
+// Telegramga chiqmaymiz: barcha API chaqiruvlarini ushlab qolamiz.
+bot.api.config.use(async (_prev, method, payload) => {
+  apiCalls.push({ method, payload });
+
+  if (failWith) {
+    const error = failWith;
+    failWith = null;
+    return { ok: false, error_code: error.code, description: error.description };
+  }
+
+  if (method === "sendMessage" || method === "editMessageText") {
+    return {
+      ok: true,
+      result: {
+        message_id: 1,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: USER.id, type: "private" },
+        text: payload.text ?? "",
+      },
+    };
+  }
+
+  return { ok: true, result: true };
+});
+
+const ME = {
+  id: 1,
+  is_bot: true,
+  first_name: "Jarvis",
+  username: "jarvis_test_bot",
+  can_join_groups: true,
+  can_read_all_group_messages: false,
+  supports_inline_queries: false,
+  can_connect_to_business_account: false,
+  has_main_web_app: false,
+};
+
+const makeCtx = (data, fromId = USER.id) =>
+  new Context(
+    {
+      update_id: Math.floor(Math.random() * 1e6),
+      callback_query: {
+        id: "cbq1",
+        from: { id: fromId, is_bot: false, first_name: "Javohir" },
+        chat_instance: "ci",
+        data,
+        message: {
+          message_id: 1,
+          date: Math.floor(Date.now() / 1000),
+          chat: { id: fromId, type: "private" },
+          text: "ESLATMA\n\nDori ichish",
+          entities: [{ type: "bold", offset: 0, length: 7 }],
+        },
+      },
+    },
+    bot.api,
+    ME,
+  );
+
+const newTask = (title, dueAt, recurrence = "none") =>
+  tasksDb.createTask({
+    userId: USER.id,
+    title,
+    dueAt,
+    timezone: tz,
+    recurrence,
+    source: "manual",
+  });
+
+// «Bajarildi» — bir martalik vazifa butunlay yopiladi
+{
+  const t = newTask("Bir martalik", Date.now() + 60_000);
+  await handleCallback(makeCtx(`d:${t.id}:${t.due_at}`));
+  check("bir martalik vazifa bajarildi deb yopildi", tasksDb.getTask(t.id)?.status === "done");
+}
+
+// «Bajarildi» — takrorlanuvchida faqat shu qadam yopiladi, seriya davom etadi
+{
+  const t = newTask("Kunlik", Date.now() + 60_000, "daily");
+  await handleCallback(makeCtx(`d:${t.id}:${t.due_at}`));
+
+  const after = tasksDb.getTask(t.id);
+  check("takrorlanuvchi seriya ochiq qoldi", after?.status === "pending");
+  check("seriya vaqti surilmadi", after?.due_at === t.due_at);
+  check(
+    "aynan shu qadam bajarilgan deb yozildi",
+    tasksDb.completionsForTask(t.id).includes(t.due_at),
+  );
+}
+
+// Xabarni tahrirlashda asl formatlash saqlanadi
+{
+  const edit = apiCalls.filter((c) => c.method === "editMessageText").pop();
+  check("xabar tahrirlandi", Boolean(edit));
+  check("asl formatlash entities orqali saqlandi", Array.isArray(edit?.payload?.entities));
+  check("HTML sifatida qayta yuborilmadi", edit?.payload?.parse_mode === undefined);
+  check("tugmalar olib tashlandi", edit?.payload?.reply_markup === undefined);
+}
+
+// «Keyinroq» — bir martalik vazifa suriladi
+{
+  const t = newTask("Suriladigan", Date.now() - 60_000);
+  tasksDb.markNotified(t.id);
+  await handleCallback(makeCtx(`s:${t.id}:10`));
+
+  const after = tasksDb.getTask(t.id);
+  check("vazifa kelajakka surildi", after.due_at > Date.now(), `due=${after.due_at}`);
+  check("xabar bayrog'i tozalandi", after.notified_at === null);
+}
+
+// «Keyinroq» — takrorlanuvchida seriya tegilmaydi, bir martalik nusxa yaratiladi
+{
+  const t = newTask("Kunlik surish", Date.now() - 60_000, "daily");
+  const before = tasksDb.listUpcoming(USER.id, 200).length;
+
+  await handleCallback(makeCtx(`s:${t.id}:60`));
+
+  check("takrorlanuvchi seriya surilmadi", tasksDb.getTask(t.id).due_at === t.due_at);
+  check(
+    "o'rniga bir martalik nusxa yaratildi",
+    tasksDb.listUpcoming(USER.id, 200).length === before + 1,
+  );
+}
+
+// «O'chirish»
+{
+  const t = newTask("O'chiriladigan", Date.now() + 60_000);
+  await handleCallback(makeCtx(`x:${t.id}`));
+  check("vazifa o'chirildi", tasksDb.getTask(t.id) === undefined);
+}
+
+// Boshqa foydalanuvchi tegina olmaydi
+{
+  const t = newTask("Himoyalangan", Date.now() + 60_000);
+  await handleCallback(makeCtx(`x:${t.id}`, 987654));
+  check("o'zga foydalanuvchi o'chira olmadi", tasksDb.getTask(t.id) !== undefined);
+}
+
+// ── Yetkazish sikli ─────────────────────────────────────
+section("Eslatma yetkazish");
+
+const { runOnce } = await load("services/scheduler.js");
+
+// Vaqti kelgan eslatma yuboriladi va ikkinchi marta takrorlanmaydi
+{
+  const t = newTask("Yuboriladigan", Date.now() - 1000);
+
+  apiCalls.length = 0;
+  const delivered = await runOnce();
+
+  check("eslatma yuborildi", delivered >= 1, `delivered=${delivered}`);
+  check(
+    "sendMessage to'g'ri chatga chaqirildi",
+    apiCalls.some((c) => c.method === "sendMessage" && c.payload.chat_id === USER.id),
+  );
+  check("xabar berilgan deb belgilandi", tasksDb.getTask(t.id)?.notified_at !== null);
+  check("ikkinchi marta yuborilmadi", (await runOnce()) === 0);
+}
+
+// Takrorlanuvchi yuborilgach darhol keyingi qadamga suriladi
+{
+  const t = newTask("Kunlik yuborish", Date.now() - 1000, "daily");
+  await runOnce();
+
+  const after = tasksDb.getTask(t.id);
+  check("takrorlanuvchi keyingi qadamga surildi", after.due_at > Date.now(), `due=${after.due_at}`);
+  check("qadam ~24 soat", Math.abs(after.due_at - t.due_at - 86_400_000) < 3_600_000);
+  check("qayta yuborishga tayyor", after.notified_at === null);
+}
+
+// Bot bloklangan (403) — qayta urinish foydasiz, vazifa yopiladi
+{
+  const t = newTask("Bloklangan foydalanuvchi", Date.now() - 1000);
+
+  failWith = { code: 403, description: "Forbidden: bot was blocked by the user" };
+  await runOnce();
+
+  check("bloklanganda vazifa yopildi", tasksDb.getTask(t.id)?.status === "cancelled");
+}
+
+// Vaqtinchalik xato — vazifa saqlanadi va keyingi siklda qayta yuboriladi
+{
+  const t = newTask("Vaqtinchalik xato", Date.now() - 1000);
+
+  failWith = { code: 500, description: "Internal Server Error" };
+  await runOnce();
+
+  const after = tasksDb.getTask(t.id);
+  check("vaqtinchalik xatoda vazifa yopilmadi", after?.status === "pending");
+  check("xabar bayrog'i tozaligicha qoldi", after?.notified_at === null);
+  check("keyingi siklda qayta yuborildi", (await runOnce()) >= 1);
+}
+
 await app.close();
 try {
   const dbMod = await load("db/index.js");

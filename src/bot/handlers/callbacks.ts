@@ -11,24 +11,32 @@ import {
 import { createLogger, describeError } from "../../lib/logger.js";
 import { formatUz, humanizeUntil } from "../../lib/time.js";
 import { CB } from "../keyboards.js";
-import { esc } from "../format.js";
 
 const log = createLogger("bot:callback");
 
-/** Xabar matnini saqlab, ostiga natija satrini qo'shadi va tugmalarni olib tashlaydi. */
+/**
+ * Xabar matnini saqlab, ostiga natija satrini qo'shadi va tugmalarni olib tashlaydi.
+ *
+ * Telegram `message.text` ni formatlashsiz qaytaradi — qalin/kursiv qismlar
+ * alohida `entities` massivida keladi. Shuning uchun matnni HTML deb qayta
+ * yubormaymiz (unda butun formatlash yo'qolardi), balki asl `entities` ni
+ * o'zgarishsiz qaytaramiz. Footer oxiriga qo'shilgani uchun mavjud
+ * entity offsetlari joyida qoladi.
+ */
 async function finalize(ctx: Context, footer: string): Promise<void> {
   const original = ctx.callbackQuery?.message;
   const base = original && "text" in original ? (original.text ?? "") : "";
+  const entities = original && "entities" in original ? original.entities : undefined;
 
   try {
     if (base) {
-      await ctx.editMessageText(`${esc(base)}\n\n${footer}`, {
-        parse_mode: "HTML",
+      await ctx.editMessageText(`${base}\n\n${footer}`, {
+        ...(entities ? { entities } : {}),
         reply_markup: undefined,
       });
     } else {
       await ctx.editMessageReplyMarkup({ reply_markup: undefined });
-      await ctx.reply(footer, { parse_mode: "HTML" });
+      await ctx.reply(footer);
     }
   } catch (error) {
     if (error instanceof GrammyError && error.description.includes("is not modified")) return;
@@ -70,8 +78,8 @@ export async function handleCallback(ctx: Context): Promise<void> {
 
       const footer =
         task.recurrence === "none"
-          ? "✅ <b>Bajarildi</b>"
-          : `✅ <b>Bajarildi</b> — keyingisi: ${esc(formatUz(task.due_at, task.timezone))}`;
+          ? "✅ Bajarildi"
+          : `✅ Bajarildi — keyingisi: ${formatUz(task.due_at, task.timezone)}`;
       await finalize(ctx, footer);
       log.info(`vazifa bajarildi: id=${taskId}, user=${userId}`);
       return;
@@ -103,10 +111,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
       }
 
       await ctx.answerCallbackQuery({ text: `⏰ ${humanizeUntil(newDueAt)} eslataman` });
-      await finalize(
-        ctx,
-        `⏰ <b>Keyinga surildi:</b> ${esc(formatUz(newDueAt, task.timezone))}`,
-      );
+      await finalize(ctx, `⏰ Keyinga surildi: ${formatUz(newDueAt, task.timezone)}`);
       log.info(`vazifa surildi: id=${taskId}, +${minutes}daq`);
       return;
     }
@@ -115,7 +120,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
       const removed = deleteTask(taskId, userId);
       await ctx.answerCallbackQuery({ text: removed ? "🗑 O'chirildi" : "Topilmadi" });
       if (removed) {
-        await finalize(ctx, "🗑 <b>Eslatma o'chirildi</b>");
+        await finalize(ctx, "🗑 Eslatma o'chirildi");
         log.info(`vazifa o'chirildi: id=${taskId}, user=${userId}`);
       }
       return;

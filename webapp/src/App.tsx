@@ -24,6 +24,22 @@ function errorMessage(error: unknown): string {
   return "Kutilmagan xatolik";
 }
 
+/**
+ * Bot xabaridagi «O'zgartirish» / «Kalendarda ko'rish» tugmalari Mini App'ni
+ * `?taskId=N` bilan ochadi. Telegram o'z ma'lumotini hash qismiga qo'shadi,
+ * shuning uchun query satri o'zgarishsiz qoladi.
+ */
+function readRequestedTaskId(): number | null {
+  try {
+    const raw = new URLSearchParams(window.location.search).get("taskId");
+    if (!raw) return null;
+    const id = Number(raw);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const [timezone, setTimezone] = useState<string | null>(null);
   const [today, setToday] = useState<string>(() => todayIso("Asia/Tashkent"));
@@ -83,6 +99,32 @@ export default function App() {
 
         setTimezone(bootstrap.timezone);
         setToday(iso);
+
+        // Bot xabaridagi tugma `?taskId=N` bilan ochadi — o'sha vazifaga
+        // sakraymiz va tahrirlash oynasini darhol ko'rsatamiz.
+        const requestedId = readRequestedTaskId();
+        if (requestedId !== null) {
+          try {
+            const detail = await fetchTask(requestedId);
+            if (cancelled) return;
+
+            setSelectedIso(detail.task.date);
+            setMonth(isoToYearMonth(detail.task.date));
+            setEditor({
+              id: detail.task.id,
+              title: detail.task.title,
+              notes: detail.task.notes,
+              date: detail.task.date,
+              time: detail.task.time,
+              recurrence: detail.task.recurrence,
+            });
+            return;
+          } catch {
+            // Vazifa o'chirilgan bo'lishi mumkin — oddiy kalendarni ochamiz.
+          }
+          if (cancelled) return;
+        }
+
         setSelectedIso(iso);
         setMonth(isoToYearMonth(iso));
       } catch (error) {
