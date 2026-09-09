@@ -2,6 +2,7 @@ import "dotenv/config";
 import crypto from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
+import { normalizePublicUrl } from "./lib/public-url.js";
 
 /** Bo'sh satrni `undefined` deb qaraymiz — .env'da bo'sh qoldirilgan kalitlar defaultga tushsin. */
 const optionalString = z
@@ -49,8 +50,22 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
-/** Oxiridagi `/` ni olib tashlaymiz, keyin URL'larni qo'shganda ikkilanmasin. */
-const publicUrl = env.PUBLIC_URL?.replace(/\/+$/, "");
+/**
+ * Sxemani to'ldirib, oxiridagi `/` ni olib tashlaymiz. Railway/Render domenni
+ * `https://` siz berishi mumkin — Telegram esa to'liq HTTPS manzilni talab qiladi.
+ */
+const publicUrlResult = normalizePublicUrl(env.PUBLIC_URL);
+
+if (publicUrlResult && !publicUrlResult.ok) {
+  console.error(`[config] ${publicUrlResult.error}`);
+  process.exit(1);
+}
+
+if (publicUrlResult?.ok && publicUrlResult.warning) {
+  console.warn(`[config] ${publicUrlResult.warning}`);
+}
+
+const publicUrl = publicUrlResult?.ok ? publicUrlResult.url : undefined;
 
 const botMode: "polling" | "webhook" = env.BOT_MODE ?? (publicUrl ? "webhook" : "polling");
 

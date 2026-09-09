@@ -516,6 +516,35 @@ const { runOnce } = await load("services/scheduler.js");
   check("keyingi siklda qayta yuborildi", (await runOnce()) >= 1);
 }
 
+// ── PUBLIC_URL normallashtirish ─────────────────────────
+section("PUBLIC_URL normallashtirish");
+{
+  const { normalizePublicUrl } = await load("lib/public-url.js");
+  const url = (v) => normalizePublicUrl(v)?.url;
+
+  check(
+    "sxemasiz domenga https qo'shiladi",
+    url("jarvis-production.up.railway.app") === "https://jarvis-production.up.railway.app",
+    url("jarvis-production.up.railway.app"),
+  );
+  check(
+    "oxiridagi slash olib tashlanadi",
+    url("https://example.com/") === "https://example.com",
+  );
+  check("to'liq manzil o'zgarmaydi", url("https://example.com") === "https://example.com");
+  check("yo'l qismi saqlanadi", url("https://example.com/bot/") === "https://example.com/bot");
+  check("lokal http qabul qilinadi", url("http://localhost:3000") === "http://localhost:3000");
+
+  check("bo'sh qiymat null", normalizePublicUrl("") === null);
+  check("berilmagan qiymat null", normalizePublicUrl(undefined) === null);
+
+  const insecure = normalizePublicUrl("http://example.com");
+  check("HTTPS bo'lmagan tashqi manzil ogohlantiradi", insecure.ok && Boolean(insecure.warning));
+
+  const broken = normalizePublicUrl("http://");
+  check("buzuq manzil xato qaytaradi", broken.ok === false, JSON.stringify(broken));
+}
+
 await app.close();
 try {
   const dbMod = await load("db/index.js");
