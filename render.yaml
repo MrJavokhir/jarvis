@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: jarvis-reminder-bot
+    runtime: node
+    # SQLite disk talab qiladi — bepul rejada disk yo'q, shuning uchun starter.
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: jarvis-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: DATA_DIR
+        value: /data
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Tashkent
+      - key: BOT_MODE
+        value: webhook
+      # Render xizmat manzilini o'zi beradi; PUBLIC_URL shundan olinadi.
+      - key: PUBLIC_URL
+        fromService:
+          type: web
+          name: jarvis-reminder-bot
+          envVarKey: RENDER_EXTERNAL_URL
+      # Quyidagilarni Render panelida qo'lda kiriting (maxfiy).
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
