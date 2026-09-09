@@ -548,6 +548,137 @@ section("PUBLIC_URL normallashtirish");
   check("buzuq manzil xato qaytaradi", broken.ok === false, JSON.stringify(broken));
 }
 
+// ── Matn tahlilchisi (AI'siz) ───────────────────────────
+section("Matn tahlilchisi (AI'siz)");
+
+const { parseTextReminder } = await load("services/text-parser.js");
+const { DateTime: LuxonDateTime } = await import("luxon");
+
+// Barcha tekshiruvlar shu qat'iy "hozir"ga nisbatan: 2026-09-09 10:00, chorshanba.
+const NOW = LuxonDateTime.fromISO("2026-09-09T10:00", { zone: tz }).toMillis();
+
+const parse = (text) => parseTextReminder(text, tz, NOW);
+
+/** Natijani "YYYY-MM-DD HH:mm" ko'rinishida qaytaradi. */
+const at = (result) => {
+  if (!result.task) return null;
+  const p = timeLib.epochMsToLocalParts(result.task.dueAt, tz);
+  return `${p.date} ${p.time}`;
+};
+
+const cases = [
+  // matn                                   kutilgan vaqt        kutilgan sarlavha
+  ["ertaga 15:00 shifokorga borish", "2026-09-10 15:00", "Shifokorga borish"],
+  ["bugun 18:00 yig'ilish", "2026-09-09 18:00", "Yig'ilish"],
+  ["10.09 09:00 uchrashuv", "2026-09-10 09:00", "Uchrashuv"],
+  ["2026-12-31 23:59 yangi yil", "2026-12-31 23:59", "Yangi yil"],
+  ["15-sentabr 14:30 tish shifokori", "2026-09-15 14:30", "Tish shifokori"],
+  ["3 kundan keyin hisobot", "2026-09-12 09:00", "Hisobot"],
+  ["2 soatdan keyin suv ich", "2026-09-09 12:00", "Suv ich"],
+  ["30 daqiqadan keyin choy", "2026-09-09 10:30", "Choy"],
+  ["ertaga ertalab yugurish", "2026-09-10 08:00", "Yugurish"],
+  ["ertaga kechqurun kitob o'qish", "2026-09-10 20:00", "Kitob o'qish"],
+];
+
+for (const [input, expectedAt, expectedTitle] of cases) {
+  const result = parse(input);
+  const got = at(result);
+  check(`"${input}" → ${expectedAt}`, got === expectedAt, `keldi: ${got}`);
+  check(`"${input}" sarlavhasi`, result.task?.title === expectedTitle, `keldi: ${result.task?.title}`);
+}
+
+// Takrorlanish
+{
+  const daily = parse("har kuni 08:00 dori ichish");
+  check("har kuni → daily", daily.task?.recurrence === "daily", daily.task?.recurrence);
+  check("har kuni vaqti", at(daily) === "2026-09-10 08:00", at(daily));
+  check("har kuni sarlavhasi", daily.task?.title === "Dori ichish", daily.task?.title);
+
+  check("har hafta → weekly", parse("har hafta 12:00 hisobot").task?.recurrence === "weekly");
+  check("har oy → monthly", parse("har oy 10:00 ijara").task?.recurrence === "monthly");
+  check("har yili → yearly", parse("har yili 12.05 tug'ilgan kun").task?.recurrence === "yearly");
+}
+
+// Hafta kunlari — 2026-09-09 chorshanba, keyingi payshanba 10-sentabr
+{
+  const thu = parse("payshanba 11:00 planerka");
+  check("payshanba → 10-sentabr", at(thu) === "2026-09-10 11:00", at(thu));
+
+  const mon = parse("dushanba ertalab hisobot");
+  check("dushanba ertalab → 14-sentabr 08:00", at(mon) === "2026-09-14 08:00", at(mon));
+  check("kun qismi taxminiy deb belgilandi", mon.task?.timeWasExplicit === false);
+
+  const everyMon = parse("har dushanba 10:00 planerka");
+  check("har dushanba → weekly", everyMon.task?.recurrence === "weekly");
+  check("har dushanba sanasi", at(everyMon) === "2026-09-14 10:00", at(everyMon));
+}
+
+// "soat N" talqini
+{
+  check("soat 3 da → 15:00", at(parse("soat 3 da uchrashuv")) === "2026-09-09 15:00", at(parse("soat 3 da uchrashuv")));
+  check(
+    "ertalab soat 6 da → 06:00",
+    at(parse("ertaga ertalab soat 6 da yugurish")) === "2026-09-10 06:00",
+    at(parse("ertaga ertalab soat 6 da yugurish")),
+  );
+  check("soat 20 da → 20:00", at(parse("soat 20 da kino")) === "2026-09-09 20:00");
+}
+
+// Faqat vaqt berilganda: bugun o'tgan bo'lsa ertaga
+{
+  check("faqat 08:00 (o'tgan) → ertaga", at(parse("08:00 nonushta")) === "2026-09-10 08:00");
+  check("faqat 16:00 (kelasi) → bugun", at(parse("16:00 qo'ng'iroq")) === "2026-09-09 16:00");
+}
+
+// Yil aytilmagan va sana o'tib ketgan bo'lsa — kelasi yil
+{
+  check("01.03 → kelasi yil", at(parse("01.03 09:00 soliq")) === "2027-03-01 09:00", at(parse("01.03 09:00 soliq")));
+}
+
+// Aniq vaqt bayrog'i
+{
+  check("15:00 aniq deb belgilandi", parse("ertaga 15:00 ish").task?.timeWasExplicit === true);
+  check("vaqtsiz sana taxminiy", parse("ertaga ish").task?.timeWasExplicit === false);
+  check("vaqtsiz sana → 09:00", at(parse("ertaga ish")) === "2026-09-10 09:00");
+}
+
+// Yordamchi so'zlar sarlavhadan tozalanadi
+{
+  const r = parse("1 soatdan keyin Rektor bilan uchrashuv bor menga eslat");
+  check("yordamchi so'zlar olib tashlandi", r.task?.title === "Rektor bilan uchrashuv bor", r.task?.title);
+
+  // Filler so'zlar so'z ichidan kesilmasligi kerak: "borish" → "ish" bo'lib qolmasin.
+  check(
+    "so'z ichidagi bo'lak kesilmaydi",
+    parse("ertaga 10:00 do'konga borish").task?.title === "Do'konga borish",
+    parse("ertaga 10:00 do'konga borish").task?.title,
+  );
+  check(
+    "faqat filler bo'lsa sarlavha bo'sh",
+    !parse("ertaga 10:00 menga eslat").task,
+  );
+  check("bir soatdan keyingi vaqt", at(r) === "2026-09-09 11:00", at(r));
+}
+
+// Tushunilmaydigan xabarlar
+{
+  const greeting = parse("salom qalaysan");
+  check("sana/vaqtsiz xabar rad etildi", !greeting.task && Boolean(greeting.reply));
+
+  const empty = parse("   ");
+  check("bo'sh xabar rad etildi", !empty.task && Boolean(empty.reply));
+
+  const noTitle = parse("ertaga 15:00");
+  check("sarlavhasiz xabar rad etildi", !noTitle.task && Boolean(noTitle.reply), JSON.stringify(noTitle));
+}
+
+// Hech qanday tarmoq chaqiruvi bo'lmasligi kerak — funksiya sinxron ishlaydi
+{
+  const started = Date.now();
+  for (let i = 0; i < 200; i += 1) parse("ertaga 15:00 test");
+  check("200 ta tahlil 200ms dan tez", Date.now() - started < 200, `${Date.now() - started}ms`);
+}
+
 await app.close();
 try {
   const dbMod = await load("db/index.js");

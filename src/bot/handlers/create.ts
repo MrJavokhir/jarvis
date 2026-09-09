@@ -2,6 +2,7 @@ import type { Context, InlineKeyboard } from "grammy";
 import { createTask, type TaskRow, type TaskSource } from "../../db/tasks.js";
 import { userTimezone } from "../../db/users.js";
 import { extractTasks, ParserError } from "../../services/parser.js";
+import { parseTextReminder, TEXT_FORMAT_HINT } from "../../services/text-parser.js";
 import { createLogger } from "../../lib/logger.js";
 import { extractedPreview, multiTaskHeader, newTaskCard, transcriptNote } from "../format.js";
 import { mainInlineKeyboard, newTaskKeyboard } from "../keyboards.js";
@@ -21,18 +22,70 @@ export interface CreateFromTextParams {
 }
 
 /**
- * Matndan eslatma(lar) yaratadi va foydalanuvchiga tasdiq yuboradi.
- * Ovozli va matnli xabarlar uchun umumiy yo'l.
+ * Xabardan eslatma(lar) yaratadi.
+ *
+ * Manbaga qarab ikki xil yo'l bor:
+ *   • **matn** — qoidalar asosidagi tahlilchi (AI'siz): tez, bepul, natijasi
+ *     oldindan aniq. Foydalanuvchi yozayotganda aniq shakl bera oladi.
+ *   • **ovoz** — til modeli: erkin gapni ham tushunadi.
  */
 export async function createTasksFromText(params: CreateFromTextParams): Promise<TaskRow[]> {
+  const timezone = userTimezone(params.userId);
+
+  return params.source === "text"
+    ? createFromPlainText(params, timezone)
+    : createFromSpeech(params, timezone);
+}
+
+/** Matnli xabar — qoidalar bilan o'qiladi, hech qanday API chaqirilmaydi. */
+async function createFromPlainText(
+  params: CreateFromTextParams,
+  timezone: string,
+): Promise<TaskRow[]> {
+  const { ctx, userId, text } = params;
+
+  const result = parseTextReminder(text, timezone);
+
+  if (!result.task) {
+    await ctx.reply(result.reply ?? TEXT_FORMAT_HINT, {
+      parse_mode: "HTML",
+      reply_markup: mainInlineKeyboard(),
+    });
+    return [];
+  }
+
+  const task = createTask({
+    userId,
+    title: result.task.title,
+    notes: result.task.notes,
+    dueAt: result.task.dueAt,
+    timezone,
+    recurrence: result.task.recurrence,
+    source: "text",
+    transcript: null,
+  });
+
+  log.info(`matn orqali vazifa yaratildi (AI'siz): id=${task.id} user=${userId}`);
+
+  await ctx.reply(newTaskCard(task, !result.task.timeWasExplicit), {
+    parse_mode: "HTML",
+    reply_markup: newTaskKeyboard(task),
+  });
+
+  return [task];
+}
+
+/** Ovozdan olingan matn — til modeli orqali tahlil qilinadi. */
+async function createFromSpeech(
+  params: CreateFromTextParams,
+  timezone: string,
+): Promise<TaskRow[]> {
   const { ctx, userId, text, source, transcript } = params;
-  const timezone = userTimezone(userId);
 
   const status = params.status ?? (await createStatus(ctx, "🧠 <i>Tahlil qilinmoqda…</i>"));
   if (params.status) await status.update("🧠 <i>Tahlil qilinmoqda…</i>");
 
-  const transcriptBlock =
-    source === "voice" && transcript ? `${transcriptNote(transcript)}\n\n` : "";
+  const transcriptBlock = transcript ? `${transcriptNote(transcript)}\n\n` : "";
 
   let extraction;
   try {

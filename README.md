@@ -3,8 +3,8 @@
 Telegram bot: **ovozli xabar yuborasiz — u vazifani va sanani o'zi tushunib, aytilgan vaqtda eslatma yuboradi.** Botga o'rnatilgan **Mini App** ichida kalendar bor: vazifalar qaysi kunga rejalashtirilganini ko'rasiz va qo'lda ham qo'shishingiz mumkin.
 
 ```
-🎤 Ovozli xabar          →  Whisper (matnga o'girish)
-                         →  GPT-4o (vazifa + sana/vaqtni ajratish)
+🎤 Ovozli xabar  →  Whisper (matnga o'girish)  →  GPT (vazifa + sana ajratish)
+💬 Matn          →  qoidalar asosidagi tahlilchi (AI'siz, bepul, bir zumda)
                          →  SQLite (saqlash)
                          →  ⏰ Vaqti kelganda Telegram notification
                          →  📅 Mini App kalendarda ko'rinadi
@@ -15,7 +15,7 @@ Telegram bot: **ovozli xabar yuborasiz — u vazifani va sanani o'zi tushunib, a
 ## Nimalarni qiladi
 
 - **Ovozli xabar** — «ertaga soat uchda shifokorga borishni eslat» deb aytasiz, bot uni tushunib saqlaydi.
-- **Matnli xabar** — xuddi shu, faqat yozib yuborasiz.
+- **Matnli xabar** — AI'siz, qoidalar bilan o'qiladi: `ertaga 15:00 shifokorga borish`, `har kuni 08:00 dori ichish`, `2 soatdan keyin suv ich`. Tez va bepul.
 - **Nisbiy vaqtlar** — «ertaga», «indinga», «keyingi dushanba», «2 soatdan keyin», «oyning oxirida» — hammasi aniq sanaga aylantiriladi.
 - **Takrorlanish** — «har kuni», «har hafta», «har oy», «har yili».
 - **Bitta xabarda bir nechta vazifa** — hammasi alohida eslatma bo'lib saqlanadi.
@@ -42,7 +42,8 @@ Telegram bot: **ovozli xabar yuborasiz — u vazifani va sanani o'zi tushunib, a
 | Server | Fastify 5 + `@fastify/static` |
 | Baza | SQLite (`better-sqlite3`), WAL rejimida |
 | Ovoz → matn | OpenAI `whisper-1` (o'zbek tili) |
-| Matn → vazifa | OpenAI `gpt-4o`, structured outputs (Zod sxema) |
+| Ovozdan vazifa | OpenAI `gpt-4o`, structured outputs (Zod sxema) |
+| Matndan vazifa | O'z tahlilchimiz — AI'siz, `src/services/text-parser.ts` |
 | Mini App | React 19 + Vite 8, Telegram WebApp SDK |
 | Vaqt | Luxon (mintaqaga sezgir takrorlanishlar) |
 
@@ -103,7 +104,7 @@ Endi botga ovozli xabar yuboring — eslatma saqlanishi kerak.
 ### Testlar
 
 ```bash
-npm test         # 74 ta integratsion tekshiruv
+npm test         # 122 ta integratsion tekshiruv
 npm run typecheck
 ```
 
@@ -219,7 +220,8 @@ src/
     format.ts          xabar matnlari, keyboards.ts  tugmalar
   services/
     stt.ts             Telegramdan yuklab olish + Whisper
-    parser.ts          OpenAI structured outputs bilan tahlil
+    parser.ts          ovoz uchun: OpenAI structured outputs bilan tahlil
+    text-parser.ts     matn uchun: qoidalar asosida tahlil (AI'siz)
     scheduler.ts       vaqti kelgan eslatmalarni yuborish
   web/
     server.ts          Fastify, statik Mini App, webhook endpoint
