@@ -59,10 +59,16 @@ export function verifyInitData(initData: string): VerifyResult {
   const hash = params.get("hash");
   if (!hash) return { ok: false, reason: "hash yo'q" };
 
-  // `hash` va `signature` imzo hisobiga kirmaydi.
+  // Imzo hisobidan faqat `hash` chiqariladi.
+  //
+  // Diqqat: `signature` maydoni ham chiqarilmasligi kerak. Telegram uni Bot
+  // API 8.0 dan beri har doim yuboradi va uchinchi tomon Ed25519 bilan
+  // tekshirganda aynan shu maydon (hash bilan birga) chiqarib tashlanadi —
+  // lekin bot tokeni bilan HMAC tekshiruvida u boshqa maydonlar qatorida
+  // qatnashadi. Uni ham chiqarib tashlash "imzo mos kelmadi" xatosiga olib keladi.
   const pairs: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (key === "hash" || key === "signature") continue;
+    if (key === "hash") continue;
     pairs.push(`${key}=${value}`);
   }
   pairs.sort();

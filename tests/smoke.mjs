@@ -56,6 +56,10 @@ function makeInitData(user, authDate = Math.floor(Date.now() / 1000)) {
     user: JSON.stringify(user),
     auth_date: String(authDate),
     query_id: "AAtest",
+    // Telegram Bot API 8.0 dan beri `signature` doim yuboriladi. Bot tokeni
+    // bilan HMAC tekshiruvida u imzo hisobiga KIRADI (faqat Ed25519 usulida
+    // chiqariladi), shuning uchun testda ham bo'lishi shart.
+    signature: "3-Xf9mZq_TestEd25519SignaturePlaceholder",
   });
 
   const pairs = [...params.entries()].map(([k, v]) => `${k}=${v}`).sort();
