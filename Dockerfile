@@ -57,9 +57,15 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/webapp/dist ./webapp/dist
 COPY package.json ./
 
-# `node` foydalanuvchisi rasmiy image'da allaqachon mavjud.
-RUN mkdir -p /data && chown -R node:node /data /app
-USER node
+RUN mkdir -p /data
+
+# Konteyner root ostida ishlaydi — bu ataylab.
+# Railway va Render doimiy volume'ni mount nuqtasiga root egaligida ulaydi va
+# uning egasini sozlash imkoni yo'q. `USER node` bilan ishlaganda SQLite
+# `/data` ga yoza olmay `SQLITE_CANTOPEN` beradi. Huquqni tushirish uchun
+# ishga tushishda `chown` qilib, keyin foydalanuvchini almashtiruvchi
+# entrypoint kerak bo'lardi — bu yerda u qo'shimcha murakkablikka arzimaydi,
+# chunki konteynerning o'zi izolyatsiya chegarasi bo'lib turibdi.
 
 EXPOSE 3000
 

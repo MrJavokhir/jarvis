@@ -6,11 +6,41 @@ import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("db");
 
-fs.mkdirSync(config.dataDir, { recursive: true });
-
 const dbPath = path.join(config.dataDir, "jarvis.sqlite");
 
-export const db: Database.Database = new Database(dbPath);
+/**
+ * Bazani ochadi. Eng ko'p uchraydigan nosozlik — deployda volume ulanmagan
+ * yoki unga yozish huquqi yo'q. SQLite bunda quruq `SQLITE_CANTOPEN` beradi,
+ * shuning uchun sababini o'zimiz tushuntiramiz.
+ */
+function openDatabase(): Database.Database {
+  try {
+    fs.mkdirSync(config.dataDir, { recursive: true });
+  } catch (error) {
+    log.error(
+      `Ma'lumotlar papkasini yaratib bo'lmadi: ${config.dataDir}\n` +
+        `DATA_DIR to'g'ri ko'rsatilganini va unga yozish huquqi borligini tekshiring.`,
+    );
+    throw error;
+  }
+
+  try {
+    return new Database(dbPath);
+  } catch (error) {
+    if ((error as { code?: string }).code === "SQLITE_CANTOPEN") {
+      log.error(
+        `Bazani ochib bo'lmadi: ${dbPath}\n` +
+          `Ehtimol sabablari:\n` +
+          `  • deployda volume ${config.dataDir} ga ulanmagan;\n` +
+          `  • yoki konteyner shu papkaga yoza olmayapti (huquq masalasi).\n` +
+          `Railway/Render'da volume mount path'i DATA_DIR bilan bir xil bo'lishi kerak.`,
+      );
+    }
+    throw error;
+  }
+}
+
+export const db: Database.Database = openDatabase();
 
 // WAL — bir vaqtda o'qish/yozish tezroq va bloklanish kamroq bo'ladi.
 db.pragma("journal_mode = WAL");
