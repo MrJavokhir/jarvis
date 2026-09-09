@@ -121,32 +121,50 @@ ushlab qolingan Telegram API chaqiruvlari ishlatiladi.
 
 ## 3. Deploy
 
+Deploy **Dockerfile** orqali amalga oshiriladi (`railway.json` va `render.yaml` shunga ko'rsatilgan). Bu ataylab tanlangan: `better-sqlite3` paket ichida tayyor binar bilan kelsa ham, npm uning ildizidagi `binding.gyp` ni ko'rib avtomatik `node-gyp rebuild` ni ishga tushiradi — Nixpacks kabi tayyor build muhitlarida esa Python bo'lmagani uchun bu `gyp ERR! not ok` bilan yiqiladi. Dockerfile'da qurish bosqichiga `python3 make g++` qo'shilgan, runtime image esa ularsiz toza qoladi.
+
 Ikkala platformada ham bot **webhook** rejimiga o'tadi (`PUBLIC_URL` berilgani uchun).
 
-> ⚠️ **Muhim:** baza SQLite faylida saqlanadi. Doimiy disk (volume) ulamasangiz, har deploydan keyin **barcha eslatmalar o'chib ketadi**. Quyidagi sozlamalarda disk allaqachon ko'rsatilgan.
+> ⚠️ **Muhim:** baza SQLite faylida saqlanadi. Doimiy disk (volume) ulamasangiz, har deploydan keyin **barcha eslatmalar o'chib ketadi**.
 
 ### Railway
 
 1. [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
-2. **Variables** bo'limiga qo'shing:
+2. **Settings → Volumes → New Volume**, mount path: `/data`
+3. **Settings → Networking → Generate Domain**
+4. **Variables** bo'limiga qo'shing:
+
    ```
    TELEGRAM_BOT_TOKEN=...
    ANTHROPIC_API_KEY=...
    OPENAI_API_KEY=...
-   DATA_DIR=/data
+   PUBLIC_URL=https://<3-qadamda chiqqan domen>
    TELEGRAM_WEBHOOK_SECRET=<tasodifiy uzun satr>
    ```
-3. **Settings → Networking → Generate Domain** → chiqqan manzilni `PUBLIC_URL` ga yozing
-4. **Settings → Volumes → New Volume**, mount path: `/data`
 
-`railway.json` build/start buyruqlarini va `/health` tekshiruvini o'zi hal qiladi.
+`DATA_DIR=/data` Dockerfile ichida o'rnatilgan — uni qo'shish shart emas. Railway `railway.json` ni ko'rib Dockerfile bilan quradi.
 
 ### Render
 
 1. [render.com](https://render.com) → New → Blueprint → repo'ni tanlang (`render.yaml` o'qiladi)
 2. So'ralganda maxfiy kalitlarni kiriting: `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
 
-`render.yaml` da disk (`/data`), `PUBLIC_URL` va webhook maxfiy tokeni allaqachon sozlangan.
+Disk (`/data`), `PUBLIC_URL` va webhook maxfiy tokeni `render.yaml` da allaqachon sozlangan.
+
+### Deploy to'g'ri ketganini bilish
+
+Loglarda ketma-ket shular chiqishi kerak:
+
+```
+INFO  [db]   baza tayyor: /data/jarvis.sqlite (sxema v1)
+INFO  [web]  server tinglayapti: http://0.0.0.0:3000
+INFO  [bot]  bot ulandi: @sizning_botingiz
+INFO  [bot]  menyu tugmasi Mini App'ga ulandi: https://...
+INFO  [main] webhook o'rnatildi: https://.../telegram/webhook
+INFO  [main] Jarvis tayyor ✅
+```
+
+`getMe failed (401: Unauthorized)` chiqsa — `TELEGRAM_BOT_TOKEN` noto'g'ri.
 
 ---
 

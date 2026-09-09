@@ -1,11 +1,10 @@
 services:
   - type: web
     name: jarvis-reminder-bot
-    runtime: node
-    # SQLite disk talab qiladi — bepul rejada disk yo'q, shuning uchun starter.
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # SQLite doimiy disk talab qiladi — bepul rejada disk yo'q.
     plan: starter
-    buildCommand: npm ci && npm run build
-    startCommand: npm run start
     healthCheckPath: /health
     autoDeploy: true
     disk:
@@ -13,8 +12,6 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
-      - key: NODE_VERSION
-        value: "24"
       - key: DATA_DIR
         value: /data
       - key: DEFAULT_TIMEZONE
