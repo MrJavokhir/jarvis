@@ -1,17 +1,12 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import OpenAI from "openai";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { config } from "../config.js";
 import { createLogger, describeError } from "../lib/logger.js";
 import { inZone, localToEpochMs, UZ_WEEKDAYS, type Recurrence } from "../lib/time.js";
+import { openai } from "./openai-client.js";
 
 const log = createLogger("parser");
-
-const anthropic = new Anthropic({
-  apiKey: config.anthropicApiKey,
-  maxRetries: 2,
-  timeout: 90_000,
-});
 
 /** Foydalanuvchiga ko'rsatish uchun o'zbekcha matni bor tahlil xatosi. */
 export class ParserError extends Error {
@@ -27,6 +22,8 @@ export class ParserError extends Error {
 
 const RECURRENCE_VALUES = ["none", "daily", "weekly", "monthly", "yearly"] as const;
 
+// Structured outputs qat'iy sxema talab qiladi: barcha maydonlar majburiy va
+// `additionalProperties: false`. Shuning uchun `.optional()` emas, `.nullable()`.
 const ModelTaskSchema = z.object({
   title: z
     .string()
@@ -113,7 +110,8 @@ QOIDALAR:
 8. Vazifa aniq, lekin vaqt umuman aytilmagan bo'lsa ham understood=true qil va
    2-qoidadagi standart vaqtni ishlat.
 
-Faqat berilgan sxema bo'yicha javob qaytar.`;
+Sana hisoblashda xato qilmaslik uchun avval bugungi sanani va hafta kunini
+e'tiborga ol, keyin nisbiy iborani unga qo'sh.`;
 
 function buildUserPrompt(text: string, timezone: string, nowMs: number): string {
   const now = inZone(nowMs, timezone);
@@ -138,9 +136,8 @@ const DEFAULT_HINT =
 /**
  * Matndan eslatmalarni ajratib oladi.
  *
- * Claude Opus 5 ishlatiladi; kutilmagan rad javobiga qarshi server tomonidagi
- * fallback yoqilgan (`fallbacks: "default"`) — rad etilgan so'rov avtomatik
- * ravishda boshqa modelda qayta ishlanadi.
+ * OpenAI structured outputs ishlatiladi — model javobi sxemaga qat'iy mos
+ * kelishi kafolatlanadi, shuning uchun qo'lda JSON tozalash kerak emas.
  */
 export async function extractTasks(input: ExtractTasksInput): Promise<ExtractTasksResult> {
   const text = input.text.trim().slice(0, INPUT_MAX);
@@ -149,36 +146,41 @@ export async function extractTasks(input: ExtractTasksInput): Promise<ExtractTas
   const nowMs = input.nowMs ?? Date.now();
   const startedAt = Date.now();
 
-  let response;
+  let completion;
   try {
-    response = await anthropic.beta.messages.parse({
-      model: config.claudeModel,
-      max_tokens: 8000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: {
-        // Sana ajratish — sodda vazifa, past effort tez va arzon ishlaydi.
-        effort: "low",
-        format: betaZodOutputFormat(ModelResponseSchema),
-      },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildUserPrompt(text, input.timezone, nowMs) }],
+    completion = await openai.chat.completions.parse({
+      model: config.parserModel,
+      // Sana hisoblashda barqarorlik muhim — tasodifiylikni minimumga tushiramiz.
+      temperature: 0,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserPrompt(text, input.timezone, nowMs) },
+      ],
+      response_format: zodResponseFormat(ModelResponseSchema, "eslatmalar"),
     });
   } catch (error) {
     log.error(`tahlil so'rovi muvaffaqiyatsiz: ${describeError(error)}`);
 
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new ParserError("Claude auth xatosi", "Tahlil xizmati sozlanmagan (API kaliti noto'g'ri).", {
+    if (error instanceof OpenAI.AuthenticationError) {
+      throw new ParserError("OpenAI auth xatosi", "Tahlil xizmati sozlanmagan (API kaliti noto'g'ri).", {
         cause: error,
       });
     }
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new ParserError("Claude rate limit", "Xizmat hozir band. Bir daqiqadan so'ng urinib ko'ring.", {
+    if (error instanceof OpenAI.PermissionDeniedError) {
+      throw new ParserError(
+        `model ruxsati yo'q: ${config.parserModel}`,
+        `Tahlil modeliga (${config.parserModel}) ruxsat yo'q. ` +
+          `OpenAI loyihangizda shu modelni yoqing yoki PARSER_MODEL ni o'zgartiring.`,
+        { cause: error },
+      );
+    }
+    if (error instanceof OpenAI.RateLimitError) {
+      throw new ParserError("OpenAI rate limit", "Xizmat hozir band. Bir daqiqadan so'ng urinib ko'ring.", {
         cause: error,
       });
     }
-    if (error instanceof Anthropic.APIConnectionError) {
-      throw new ParserError("Claude ulanish xatosi", "Tahlil xizmatiga ulanib bo'lmadi. Qaytadan urinib ko'ring.", {
+    if (error instanceof OpenAI.APIConnectionError) {
+      throw new ParserError("OpenAI ulanish xatosi", "Tahlil xizmatiga ulanib bo'lmadi. Qaytadan urinib ko'ring.", {
         cause: error,
       });
     }
@@ -187,14 +189,16 @@ export async function extractTasks(input: ExtractTasksInput): Promise<ExtractTas
     });
   }
 
-  if (response.stop_reason === "refusal") {
-    log.warn(`model so'rovni rad etdi: ${response.stop_details?.category ?? "noma'lum"}`);
+  const message = completion.choices[0]?.message;
+
+  if (message?.refusal) {
+    log.warn(`model so'rovni rad etdi: ${message.refusal}`);
     return { tasks: [], reply: "Bu xabarni qayta ishlay olmadim. Boshqacha ifodalab ko'ring." };
   }
 
-  const parsed = response.parsed_output;
+  const parsed = message?.parsed;
   if (!parsed) {
-    log.warn(`javobni sxema bo'yicha o'qib bo'lmadi (stop_reason=${response.stop_reason})`);
+    log.warn(`javobni sxema bo'yicha o'qib bo'lmadi (finish=${completion.choices[0]?.finish_reason})`);
     return { tasks: [], reply: DEFAULT_HINT };
   }
 
@@ -225,7 +229,7 @@ export async function extractTasks(input: ExtractTasksInput): Promise<ExtractTas
   }
 
   log.info(
-    `tahlil tayyor (${Date.now() - startedAt}ms): ${tasks.length} ta eslatma, model=${response.model}`,
+    `tahlil tayyor (${Date.now() - startedAt}ms): ${tasks.length} ta eslatma, model=${completion.model}`,
   );
 
   // Model "tushundim" desa-yu, birorta ham yaroqli sana chiqmasa — tushunmagan hisoblaymiz.

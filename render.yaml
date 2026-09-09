@@ -27,8 +27,6 @@ services:
       # Quyidagilarni Render panelida qo'lda kiriting (maxfiy).
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET

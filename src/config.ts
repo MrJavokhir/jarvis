@@ -13,7 +13,6 @@ const optionalString = z
 
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().trim().min(1, "TELEGRAM_BOT_TOKEN majburiy"),
-  ANTHROPIC_API_KEY: z.string().trim().min(1, "ANTHROPIC_API_KEY majburiy"),
   OPENAI_API_KEY: z.string().trim().min(1, "OPENAI_API_KEY majburiy"),
 
   PUBLIC_URL: optionalString,
@@ -29,8 +28,10 @@ const envSchema = z.object({
   SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().min(5).max(600).default(30),
   MAX_VOICE_DURATION_SECONDS: z.coerce.number().int().min(5).max(3600).default(300),
 
-  STT_MODEL: z.string().trim().default("gpt-4o-transcribe"),
-  CLAUDE_MODEL: z.string().trim().default("claude-opus-5"),
+  // whisper-1 barcha OpenAI loyihalariga ochiq; gpt-4o-transcribe ba'zi
+  // loyihalarda ruxsat talab qiladi.
+  STT_MODEL: z.string().trim().default("whisper-1"),
+  PARSER_MODEL: z.string().trim().default("gpt-4o"),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -76,7 +77,6 @@ if (botMode === "webhook" && !publicUrl) {
 
 export const config = {
   telegramBotToken: env.TELEGRAM_BOT_TOKEN,
-  anthropicApiKey: env.ANTHROPIC_API_KEY,
   openaiApiKey: env.OPENAI_API_KEY,
 
   publicUrl,
@@ -95,7 +95,7 @@ export const config = {
   maxVoiceDurationSeconds: env.MAX_VOICE_DURATION_SECONDS,
 
   sttModel: env.STT_MODEL,
-  claudeModel: env.CLAUDE_MODEL,
+  parserModel: env.PARSER_MODEL,
 
   logLevel: env.LOG_LEVEL,
 } as const;

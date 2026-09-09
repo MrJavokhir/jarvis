@@ -1,14 +1,9 @@
 import OpenAI, { toFile } from "openai";
 import { config } from "../config.js";
 import { createLogger, describeError } from "../lib/logger.js";
+import { openai } from "./openai-client.js";
 
 const log = createLogger("stt");
-
-const openai = new OpenAI({
-  apiKey: config.openaiApiKey,
-  maxRetries: 2,
-  timeout: 120_000,
-});
 
 /** Foydalanuvchiga ko'rsatish uchun o'zbekcha matni bor STT xatosi. */
 export class SttError extends Error {
@@ -134,6 +129,14 @@ export async function transcribeVoice(input: TranscribeVoiceInput): Promise<stri
       throw new SttError("OpenAI auth xatosi", "Ovoz xizmati sozlanmagan (API kalit noto'g'ri).", {
         cause: error,
       });
+    }
+    if (error instanceof OpenAI.PermissionDeniedError) {
+      throw new SttError(
+        `model ruxsati yo'q: ${config.sttModel}`,
+        `Ovoz modeliga (${config.sttModel}) ruxsat yo'q. OpenAI loyihangizda shu modelni ` +
+          `yoqing yoki STT_MODEL ni whisper-1 ga o'zgartiring.`,
+        { cause: error },
+      );
     }
     if (error instanceof OpenAI.RateLimitError) {
       throw new SttError("OpenAI rate limit", "Xizmat hozir band. Bir daqiqadan so'ng urinib ko'ring.", {

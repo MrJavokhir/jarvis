@@ -9,7 +9,6 @@ const BOT_TOKEN = "123456:TEST-TOKEN-FOR-SMOKE-ONLY";
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-smoke-"));
 
 process.env.TELEGRAM_BOT_TOKEN = BOT_TOKEN;
-process.env.ANTHROPIC_API_KEY = "sk-ant-test";
 process.env.OPENAI_API_KEY = "sk-test";
 process.env.DATA_DIR = dataDir;
 process.env.BOT_MODE = "polling";
